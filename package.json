@@ -52,6 +52,7 @@
     "remark-gfm": "^4.0.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss": "^4.1.8",
+    "tauri": "^0.15.0",
     "zod": "^3.24.1",
     "zustand": "^5.0.6"
   },

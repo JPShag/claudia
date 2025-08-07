@@ -74,7 +74,12 @@ pub fn find_claude_binary(app_handle: &tauri::AppHandle) -> Result<String, Strin
 
     if installations.is_empty() {
         error!("Could not find claude binary in any location");
-        return Err("Claude Code not found. Please ensure it's installed in one of these locations: PATH, /usr/local/bin, /opt/homebrew/bin, ~/.nvm/versions/node/*/bin, ~/.claude/local, ~/.local/bin".to_string());
+        let error_msg = if cfg!(target_os = "windows") {
+            "Claude Code not found. Please ensure it's installed in one of these locations: PATH, %APPDATA%\\npm, %LOCALAPPDATA%\\Programs\\claude, %ProgramFiles%\\claude, %USERPROFILE%\\.claude\\local, or installed via npm/yarn/scoop/chocolatey"
+        } else {
+            "Claude Code not found. Please ensure it's installed in one of these locations: PATH, /usr/local/bin, /opt/homebrew/bin, ~/.nvm/versions/node/*/bin, ~/.claude/local, ~/.local/bin"
+        };
+        return Err(error_msg.to_string());
     }
 
     // Log all found installations
@@ -164,48 +169,66 @@ fn discover_system_installations() -> Vec<ClaudeInstallation> {
     installations
 }
 
-/// Try using the 'which' command to find Claude
+/// Try using the 'which' or 'where' command to find Claude
 fn try_which_command() -> Option<ClaudeInstallation> {
-    debug!("Trying 'which claude' to find binary...");
+    debug!("Trying to find claude in PATH...");
 
-    match Command::new("which").arg("claude").output() {
-        Ok(output) if output.status.success() => {
-            let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // Use 'where' on Windows, 'which' on Unix
+    let (cmd, args) = if cfg!(target_os = "windows") {
+        ("where", vec!["claude", "claude.exe", "claude.cmd", "claude.bat"])
+    } else {
+        ("which", vec!["claude"])
+    };
 
-            if output_str.is_empty() {
-                return None;
+    for arg in args {
+        match Command::new(cmd).arg(arg).output() {
+            Ok(output) if output.status.success() => {
+                let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+                if output_str.is_empty() {
+                    continue;
+                }
+
+                // On Windows, 'where' might return multiple paths, one per line
+                let paths: Vec<String> = if cfg!(target_os = "windows") {
+                    output_str.lines().map(|s| s.trim().to_string()).collect()
+                } else {
+                    // Parse aliased output: "claude: aliased to /path/to/claude"
+                    let path = if output_str.starts_with("claude:") && output_str.contains("aliased to") {
+                        output_str
+                            .split("aliased to")
+                            .nth(1)
+                            .map(|s| s.trim().to_string())
+                    } else {
+                        Some(output_str)
+                    };
+                    path.into_iter().collect()
+                };
+
+                for path in paths {
+                    debug!("Found claude at: {}", path);
+
+                    // Verify the path exists
+                    if !PathBuf::from(&path).exists() {
+                        warn!("Path does not exist: {}", path);
+                        continue;
+                    }
+
+                    // Get version
+                    let version = get_claude_version(&path).ok().flatten();
+
+                    return Some(ClaudeInstallation {
+                        path,
+                        version,
+                        source: if cfg!(target_os = "windows") { "where".to_string() } else { "which".to_string() },
+                        installation_type: InstallationType::System,
+                    });
+                }
             }
-
-            // Parse aliased output: "claude: aliased to /path/to/claude"
-            let path = if output_str.starts_with("claude:") && output_str.contains("aliased to") {
-                output_str
-                    .split("aliased to")
-                    .nth(1)
-                    .map(|s| s.trim().to_string())
-            } else {
-                Some(output_str)
-            }?;
-
-            debug!("'which' found claude at: {}", path);
-
-            // Verify the path exists
-            if !PathBuf::from(&path).exists() {
-                warn!("Path from 'which' does not exist: {}", path);
-                return None;
-            }
-
-            // Get version
-            let version = get_claude_version(&path).ok().flatten();
-
-            Some(ClaudeInstallation {
-                path,
-                version,
-                source: "which".to_string(),
-                installation_type: InstallationType::System,
-            })
+            _ => continue,
         }
-        _ => None,
     }
+    None
 }
 
 /// Find Claude installations in NVM directories

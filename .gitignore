@@ -13,8 +13,9 @@ dist-ssr
 *.local
 *.bun-build
 
-# Tauri binaries (built executables)
+# Tauri binaries and build artifacts
 src-tauri/binaries/
+src-tauri/target/
 
 # Editor directories and files
 .vscode/*
@@ -36,4 +37,16 @@ CLAUDE.md
 # Claude project-specific files
 .claude/
 
+# Environment files
 .env
+.env.local
+.env.*.local
+
+# Lock files (keep package-lock.json for consistency)
+yarn.lock
+pnpm-lock.yaml
+
+# Test files
+*.test.exe
+test_*.rs
+test_*.exe
